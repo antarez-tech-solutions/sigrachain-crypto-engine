@@ -82,3 +82,37 @@ pub fn safe_hash_pair(left: &str, right: &str) -> Result<String, hex::FromHexErr
 
     Ok(hex::encode(hasher.finalize()))
 }
+
+/// Validates that a string is a valid SHA-256 hex hash.
+pub fn is_valid_hash(hash: &str) -> bool {
+    hash.len() == 64 && hash.chars().all(|c| c.is_ascii_hexdigit() && c.is_ascii_lowercase())
+}
+
+/// Normalizes a hash to lowercase.
+/// Returns normalized hash or error if invalid format
+pub fn normalize_hash(hash: &str) -> Result<String, create::error::HashError> {
+    if hash.len() != 64 {
+        return Err(create::error::HashError::InvalidLength {
+            expected: 64,
+            actual: hash.len(),
+        });
+    }
+
+    let normalized = hash.to_lowercase();
+
+    if !normalized.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(create::error::HashError::InvalidCharacters {
+            invalid_chars: normalized
+                .chars()
+                .filter(|c| !c.is_ascii_hexdigit())
+                .unwrap_or('?'),
+            position: normalized
+                .chars()
+                .position(|c| !c.is_ascii_hexdigit())
+                .unwrap_or(0),
+        });
+    }
+    Ok(normalized)
+}
+
+
