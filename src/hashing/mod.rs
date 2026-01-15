@@ -90,7 +90,7 @@ pub fn is_valid_hash(hash: &str) -> bool {
 
 /// Normalizes a hash to lowercase.
 /// Returns normalized hash or error if invalid format
-pub fn normalize_hash(hash: &str) -> Result<String, crate::error::HashError> {
+pub fn normalize_hash(hash: &str) -> Result<String, create::error::HashError> {
     if hash.len() != 64 {
         return Err(crate::error::HashError::InvalidLength {
             expected: 64,
@@ -215,6 +215,40 @@ mod tests {
         assert_eq!(parent_hash.len(), 64);
         assert_ne!(parent_hash, left);
         assert_ne!(parent_hash, right);
+    }
+
+    #[test]
+    fn test_is_valid_hash() {
+        // Valid
+        assert!(is_valid_hash(EMPTY_HASH));
+        assert!(is_valid_hash(HELLO_HASH));
+        // Invalid: too short
+        assert!(!is_valid_hash("e3b0c44298fc"));
+        // Invalid: too long
+        assert!(!is_valid_hash(&format!("{}extra", EMPTY_HASH)));
+        // Invalid: uppercase
+        assert!(!is_valid_hash("G2345678901234567890123456789012345678901234567890123456789012345"));
+        // Invalid: non-hex
+        assert!(!is_valid_hash("g3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"));
+    }
+
+    #[test]
+    fn test_normalize_hash() {
+        // Uppercase to lowercase
+        let upper = "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+        let normalized = normalize_hash(upper).unwrap();
+        assert_eq!(normalized, EMPTY_HASH);
+
+        // Already lowercase
+        let lower = EMPTY_HASH;
+        let normalized = normalize_hash(lower).unwrap();
+        assert_eq!(normalized, lower);
+        assert!(normalized.is_ok());
+
+        // Invalid length
+        let short = "e3b0c44298fc";
+        let err = normalize_hash(short).unwrap_err();
+        assert!(err.is_err());
     }
 }
 
