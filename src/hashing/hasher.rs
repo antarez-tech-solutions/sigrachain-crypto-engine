@@ -42,3 +42,206 @@ impl HashConfig {
     }
 }
 
+/// Configurable document hasher with streaming support.
+/// While `hash_document()` is sufficient for most use cases, `DocumentHasher`
+/// provides additional features:
+///
+/// - Custom buffer sizes for memory optimization
+/// - Streaming hashing for files too large to fit in memory
+/// - Progress callbacks for large operations
+#[derive(Clone, Debug)]
+pub struct DocumentHasher {
+    config: HashConfig,
+}
+
+impl DocumentHasher {
+    /// Creates a new DocumentHasher with the default configuration.
+    pub fn new() -> Self {
+        Self {
+            config: HashConfig::default(),
+        }
+    }
+
+    /// Creates a new DocumentHasher with custom configuration.
+    pub fn with_config(config: HashConfig) -> Self {
+        Self { config }
+    }
+
+    /// Returns the current configuration.
+    pub fn config(&self) -> &HashConfig {
+        &self.config
+    }
+
+    /// Hashes raw bytes and returns hex string.
+    pub fn hash_bytes(&self, data: &[u8]) -> String {
+        let mut hasher = Sha256::new();
+        hasher.update(data);
+        let result = hasher.finalize();
+
+        if self.config.lowercase_hex {
+            hex::encode(result)
+        } else {
+            hex::encode_upper(result)
+        }
+    }
+
+    /// Hashes a string (UTF-8 encoded).
+    pub fn hash_string(&self, data: &str) -> String {
+        self.hash_bytes(data.as_bytes())
+    }
+
+    /// Hashes data from a reader (for large files).
+    /// This method streams data through the hasher in chunks, making it
+    /// suitable for files too large to fit in memory.
+    pub fn hash_reader<R: Read>(&self, reader: R) -> std::io::Result<String> {
+        let mut hasher = Sha256::new();
+        let mut buf_reader = BufReader::with_capacity(self.config.buffer_size, reader);
+        let mut buffer = vec![0; self.config.buffer_size];
+
+        loop {
+            let bytes_read = buf_reader.read(&mut buffer)?;
+            if bytes_read == 0 {
+                break;
+            }
+            hasher.update(&buffer[..bytes_read]);
+        }
+
+        let result = hasher.finalize();
+
+        Ok(if self.config.lowercase_hex {
+            hex::encode(result)
+        } else {
+            hex::encode_upper(result)
+        })
+    }
+
+    /// Hashes data from a reader with progress callback.
+    pub fn hash_reader_with_progress<R, F>(
+        &self,
+        reader: R,
+        total_size: u64,
+        mut on_progress: F,
+    ) -> std::io::Result<String> 
+    where
+        R: Read,
+        F: FnMut(u64, u64),
+    {
+        let mut hasher = Sha256::new();
+        let mut buf_reader = BufReader::with_capacity(self.config.buffer_size, reader);
+        let mut buffer = vec![0; self.config.buffer_size];
+        let mut bytes_processed: u64 = 0;
+
+        loop {
+            let bytes_read = buf_reader.read(&mut buffer)?;
+            if bytes_read == 0 {
+                break;
+            }
+            hasher.update(&buffer[..bytes_read]);
+            bytes_processed += bytes_read as u64;
+            on_progress(bytes_processed, total_size);
+        }
+
+        let result = hasher.finalize();
+
+        Ok(if self.config.lowercase_hex {
+            hex::encode(result)
+        } else {
+            hex::encode_upper(result)
+        })
+    }
+}
+
+impl Default for DocumentHasher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// STREAMING HASHER
+/// Incremental hasher for streaming document processing.
+///
+/// Use this when document data arrives in chunks (network streaming, chunked
+/// uploads, etc.).
+pub struct StreamingHasher {
+    hasher: Sha256,
+    bytes_processed: u64,
+}
+
+impl StreamingHasher {
+    /// Creates a new StreamingHasher.
+    pub fn new() -> Self {
+        Self {
+            hasher: Sha256::new(),
+            bytes_processed: 0,
+        }
+    }
+
+    /// Adds a chunk of data to the hash.
+    ///
+    /// Can be called multiple times with successive chunks.
+    pub fn update(&mut self, chunk: &[u8]) {
+        self.hasher.update(chunk);
+        self.bytes_processed += chunk.len() as u64;
+    }
+
+    /// Returns the number of bytes processed so far.
+    pub fn bytes_processed(&self) -> u64 {
+        self.bytes_processed
+    }
+
+    /// Finalizes the hash and returns the result.
+    ///
+    /// This consumes the hasher. To reuse, create a new `StreamingHasher`.
+    pub fn finalize(self) -> String {
+        hex::encode(self.hasher.finalize())
+    }
+
+    /// Resets the hasher to its initial state.
+    ///
+    /// This allows reusing the same hasher instance for multiple documents.
+    pub fn reset(&mut self) {
+        self.hasher = Sha256::new();
+        self.bytes_processed = 0;
+    }
+}
+
+impl Default for StreamingHasher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_hasher_default() {
+        let hasher = DocumentHasher::default();
+        let hash = hasher.hash_bytes(b"test");
+        assert_eq!(hash.len(), 64);
+    }
+
+    #[test]
+    fn test_hasher_custom_config() {
+        let config = HashConfig {
+            buffer_size: 1024,
+            lowercase_hex: false,
+        };
+        let hasher = DocumentHasher::with_config(config);
+        let hash = hasher.hash_string("another test");
+        assert_eq!(hash.len(), 64);
+        assert!(hash.chars().any(|c| c.is_ascii_uppercase()));
+    }
+
+    #[test]
+    fn test_hasher_consistent_with_hash_document()  {
+        let hasher = DocumentHasher::new();
+        let data = b"consistent hashing test";
+     
+        let hash1 = hasher.hash_bytes(data);
+        let hash2 =  crate::hashing::hash_document(data);
+
+        assert_eq!(hash1, hash2);
+    }
+}
