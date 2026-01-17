@@ -244,4 +244,95 @@ mod tests {
 
         assert_eq!(hash1, hash2);
     }
+
+    #[test]
+    fn test_hash_reader() {
+        use std::io::Cursor;
+
+        let hasher = DocumentHasher::new();
+        let data = b"streaming hash test data";
+
+        // Create an in-memory reader
+        let cursor = Cursor::new(data);
+        let hash1 = hasher.hash_reader(cursor).unwrap();
+
+        // Should match direct hash
+        let hash2 = hasher.hash_bytes(data);
+        assert_eq!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_streaming_hasher() {
+        let mut streaming_hasher = StreamingHasher::new();
+
+        // Feed in chuncks
+        streamer.update(b"hello");
+        streamer.update(b" ");
+        streamer.update(b"world");
+
+        assert_eq!(streamer.bytes_processed(), 11);
+
+        let hash = streamer.finalize();
+
+         // Should match single-shot hash
+        let expected = crate::hashing::hash_document(b"hello world");
+        assert_eq!(hash, expected);
+    }
+
+    #[test]
+    fn test_streaming_hasher_reset() {
+        let mut streaming = StreamingHasher::new();
+
+        streaming.update(b"first document");
+        streaming.reset();
+
+        // After reset, should behave like new hasher
+        let hash = streaming.finalize();
+
+        let expected =  crate::hashing::hash_document(b"second document");
+        assert_eq!(hash, expected);
+    }
+
+    #[test]
+    fn test_large_file_config() {
+        let config = HashConfig::for_large_files();
+        assert_eq!(config.buffer_size, 64 * 1024);
+        assert!(config.lowercase_hex);
+    }
+
+    #[test]
+    fn test_hash_reader_with_progress() {
+        use std::io::Cursor;
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        let hasher = DocumentHasher::with_config(HashConfig {
+            buffer_size: 4
+            lowercase_hex: true,
+        });
+
+        let data = b"progress callback test data";
+        let cursor = Cursor::new(data);
+        let total_size = data.len() as u64;
+
+        let progress_calls = AtomicU64::new(0);
+        let last_processed = AtomicU64::new(0);
+        
+        let hash = hasher
+            .hash_reader_with_progress(cursor, total_size, |processed, total| {
+                progress_calls.fetch_add(1, Ordering::SeqCst);
+                last_processed.store(processed, Ordering::SeqCst);
+                assert_eq!(total, total_size);
+            })
+            .unwrap();
+
+        // Progress should have been called
+        assert!(progress_calls.load(Ordering::SeqCst) > 0);
+
+        // Final processed bytes should equal total size
+        assert_eq!(last_processed.load(Ordering::SeqCst), total_size);
+        
+        // Hash should be correct
+        let expected = crate::hashing::hash_document(data);
+        assert_eq!(hash, expected);
+    }
 }
