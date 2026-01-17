@@ -265,14 +265,14 @@ mod tests {
     fn test_streaming_hasher() {
         let mut streaming_hasher = StreamingHasher::new();
 
-        // Feed in chuncks
-        streamer.update(b"hello");
-        streamer.update(b" ");
-        streamer.update(b"world");
+        // Feed in chunks
+        streaming_hasher.update(b"hello");
+        streaming_hasher.update(b" ");
+        streaming_hasher.update(b"world");
 
-        assert_eq!(streamer.bytes_processed(), 11);
+        assert_eq!(streaming_hasher.bytes_processed(), 11);
 
-        let hash = streamer.finalize();
+        let hash = streaming_hasher.finalize();
 
          // Should match single-shot hash
         let expected = crate::hashing::hash_document(b"hello world");
@@ -287,9 +287,10 @@ mod tests {
         streaming.reset();
 
         // After reset, should behave like new hasher
+        streaming.update(b"second document");
         let hash = streaming.finalize();
 
-        let expected =  crate::hashing::hash_document(b"second document");
+        let expected = crate::hashing::hash_document(b"second document");
         assert_eq!(hash, expected);
     }
 
@@ -306,7 +307,7 @@ mod tests {
         use std::sync::atomic::{AtomicU64, Ordering};
 
         let hasher = DocumentHasher::with_config(HashConfig {
-            buffer_size: 4
+            buffer_size: 4,
             lowercase_hex: true,
         });
 
