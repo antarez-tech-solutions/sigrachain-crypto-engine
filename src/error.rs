@@ -18,6 +18,14 @@ pub enum CryptoError {
     #[error("Internal error: {message}")]
     Internal { message: String },
 
+    #[error("Merkle error: {0}")]
+    Merkle(#[from] MerkleError),
+
+    #[error("Proof error: {0}")]
+    Proof(#[from] ProofError),
+
+    #[error("Signing error: {0}")]
+    Signing(#[from] SigningError),
 }
 
 #[derive(Debug, Error)]
@@ -58,6 +66,45 @@ impl HashError {
             source,
         }
     }
+}
+
+#[derive(Debug, Error, Clone, PartialEq, Eq)]
+pub enum MerkleError {
+    #[error("cannot build tree from empty leaves")]
+    EmptyLeaves,
+
+    #[error("invalid hash at index {index}: {hash}")]
+    InvalidHash { index: usize, hash: String },
+
+    #[error("tree integrity check failed at level {level}, index {index}")]
+    IntegrityCheckFailed { level: usize, index: usize },
+
+    #[error("tree too large: {size} leaves exceeds maximum {max}")]
+    TreeTooLarge { size: usize, max: usize },
+}
+
+#[derive(Debug, Error, Clone, PartialEq, Eq)]
+pub enum ProofError {
+    #[error("document not found in tree: {hash}")]
+    DocumentNotFound { hash: String },
+
+    #[error("invalid document hash: {hash}")]
+    InvalidDocumentHash { hash: String },
+
+    #[error("invalid root hash: {hash}")]
+    InvalidRootHash { hash: String },
+
+    #[error("invalid proof step at index {index}: {hash}")]
+    InvalidProofStep { index: usize, hash: String },
+
+    #[error("invalid tree structure at level {level}, index {index}")]
+    InvalidTreeStructure { level: usize, index: usize },
+
+    #[error("hex encoding error")]
+    HexEncoding,
+
+    #[error("verification failed: computed {computed}, expected {expected}")]
+    VerificationFailed { computed: String, expected: String },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
