@@ -1,8 +1,10 @@
 
 
 pub mod error;
+pub mod hashing;
 
-pub use error::{CryptoError};
+pub use error::{CryptoError, HashError};
+pub use hashing::{hash_document, hash_string, batch_hash_documents, DocumentHasher, HashConfig, StreamingHasher};
 
 pub fn version() -> &'static str {
     env!("CARGO_PKG_VERSION")
