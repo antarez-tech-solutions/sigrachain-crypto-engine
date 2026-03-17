@@ -67,13 +67,13 @@ pub fn hash_pair(left: &str, right: &str) -> String {
 /// Safe version of hash_pair that returns Result instead of panicking.
 ///
 /// Use this when hashes come from untrusted sources.
-pub fn safe_hash_pair(left: &str, right: &str) -> Result<String, hex::FromHexError> {
-    let left_bytes = hex::decode(left).map_err(|_| crate::error::HashError::InvalidHex {
-        value: left.to_string(),
+pub fn safe_hash_pair(left: &str, right: &str) -> Result<String, crate::error::HashError> {
+    let left_bytes = hex::decode(left).map_err(|e| crate::error::HashError::HexEncoding {
+        details: format!("Invalid hex in left hash: {}", e),
     })?;
 
-    let right_bytes = hex::decode(right).map_err(|_| crate::error::HashError::InvalidHex {
-        value: right.to_string(),
+    let right_bytes = hex::decode(right).map_err(|e| crate::error::HashError::HexEncoding {
+        details: format!("Invalid hex in right hash: {}", e),
     })?;
 
     let mut hasher = Sha256::new();
@@ -85,32 +85,33 @@ pub fn safe_hash_pair(left: &str, right: &str) -> Result<String, hex::FromHexErr
 
 /// Validates that a string is a valid SHA-256 hex hash.
 pub fn is_valid_hash(hash: &str) -> bool {
-    hash.len() == 64 && hash.chars().all(|c| c.is_ascii_hexdigit() && c.is_ascii_lowercase())
+    hash.len() == 64 && hash.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
 }
 
 /// Normalizes a hash to lowercase.
 /// Returns normalized hash or error if invalid format
-pub fn normalize_hash(hash: &str) -> Result<String, create::error::HashError> {
+pub fn normalize_hash(hash: &str) -> Result<String, crate::error::HashError> {
     if hash.len() != 64 {
-        return Err(crate::error::HashError::InvalidLength {
-            expected: 64,
-            actual: hash.len(),
+        return Err(crate::error::HashError::InvalidFormat {
+            length: hash.len(),
         });
     }
 
     let normalized = hash.to_lowercase();
 
     if !normalized.chars().all(|c| c.is_ascii_hexdigit()) {
-        return Err(crate::error::HashError::InvalidCharacters {
-            invalid_chars: normalized
-                .chars()
-                .filter(|c| !c.is_ascii_hexdigit())
-                .next()
-                .unwrap_or('?'),
-            position: normalized
-                .chars()
-                .position(|c| !c.is_ascii_hexdigit())
-                .unwrap_or(0),
+        return Err(crate::error::HashError::HexEncoding {
+            details: format!(
+                "Hash contains non-hexadecimal character '{}' at position {}",
+                normalized
+                    .chars()
+                    .find(|c| !c.is_ascii_hexdigit())
+                    .unwrap_or('?'),
+                normalized
+                    .chars()
+                    .position(|c| !c.is_ascii_hexdigit())
+                    .unwrap_or(0),
+            ),
         });
     }
     Ok(normalized)
@@ -126,7 +127,7 @@ mod tests {
 
     // Known test vector: SHA-256 of "Hello, World!"
     const HELLO_HASH: &str =
-        "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824";
+        "dffd6021bb2bd5b0af676290809ec3a53191dd81c7f70a4b28688a362182986f";
 
     #[test]
     fn test_hash_empty() {
@@ -187,7 +188,7 @@ mod tests {
     }
 
     #[test]
-    fn test_batch_hasg() {
+    fn test_batch_hash() {
         let docs: Vec<&[u8]> = vec![b"doc1", b"doc2", b"doc3"];
         let hashes = batch_hash_documents(&docs);
 
@@ -206,9 +207,9 @@ mod tests {
 
         assert_eq!(
             parent_hash,
-            hash_document(&hex::decode(left).unwrap()
+            hash_document(&hex::decode(&left).unwrap()
                 .iter()
-                .chain(&hex::decode(right).unwrap())
+                .chain(&hex::decode(&right).unwrap())
                 .cloned()
                 .collect::<Vec<u8>>())
         );
@@ -235,20 +236,33 @@ mod tests {
     #[test]
     fn test_normalize_hash() {
         // Uppercase to lowercase
-        let upper = "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+        let upper = "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855";
         let normalized = normalize_hash(upper).unwrap();
         assert_eq!(normalized, EMPTY_HASH);
 
-        // Already lowercase
+        // Already lowercase — no change
         let lower = EMPTY_HASH;
         let normalized = normalize_hash(lower).unwrap();
         assert_eq!(normalized, lower);
-        assert!(normalized.is_ok());
 
-        // Invalid length
+        // Invalid length — should error
         let short = "e3b0c44298fc";
-        let err = normalize_hash(short).unwrap_err();
-        assert!(err.is_err());
+        assert!(normalize_hash(short).is_err());
+    }
+
+    #[test]
+    fn test_safe_hash_pair_valid() {
+        let left = hash_document(b"left");
+        let right = hash_document(b"right");
+        let result = safe_hash_pair(&left, &right);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), hash_pair(&left, &right));
+    }
+
+    #[test]
+    fn test_safe_hash_pair_invalid() {
+        let result = safe_hash_pair("not_valid_hex", "also_not_hex");
+        assert!(result.is_err());
     }
 }
 

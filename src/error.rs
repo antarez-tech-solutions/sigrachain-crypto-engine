@@ -107,6 +107,15 @@ pub enum ProofError {
     VerificationFailed { computed: String, expected: String },
 }
 
+#[derive(Debug, Error, Clone, PartialEq, Eq)]
+pub enum SigningError {
+    #[error("key generation failed: {reason}")]
+    KeyGenerationFailed { reason: String },
+
+    #[error("signing operation failed: {reason}")]
+    SigningFailed { reason: String },
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorCode {
     // Hash errors: 1xxx
@@ -120,7 +129,6 @@ pub enum ErrorCode {
     EmptyTreeInput = 2001,
     TooManyLeaves = 2002,
     InvalidHashInTree = 2003,
-    DuplicateHash = 2004,
     TreeCorrupted = 2005,
 
     // Proof errors: 3xxx
@@ -132,9 +140,7 @@ pub enum ErrorCode {
 
     // Signing errors: 4xxx
     KeyGenerationFailed = 4001,
-    InvalidKey = 4002,
     SigningFailed = 4003,
-    VerificationFailed2 = 4004,
 
     // General errors: 9xxx
     IoError = 9001,
@@ -155,11 +161,40 @@ impl CryptoError {
                 HashError::FileRead { .. } => ErrorCode::FileReadError,
                 HashError::InvalidState { .. } => ErrorCode::InternalError,
             },
+            CryptoError::Merkle(e) => match e {
+                MerkleError::EmptyLeaves => ErrorCode::EmptyTreeInput,
+                MerkleError::InvalidHash { .. } => ErrorCode::InvalidHashInTree,
+                MerkleError::IntegrityCheckFailed { .. } => ErrorCode::TreeCorrupted,
+                MerkleError::TreeTooLarge { .. } => ErrorCode::TooManyLeaves,
+            },
+            CryptoError::Proof(e) => match e {
+                ProofError::DocumentNotFound { .. } => ErrorCode::DocumentNotFound,
+                ProofError::InvalidDocumentHash { .. } => ErrorCode::InvalidDocumentHash,
+                ProofError::InvalidRootHash { .. } => ErrorCode::InvalidRootHash,
+                ProofError::InvalidProofStep { .. } => ErrorCode::InvalidProofStep,
+                ProofError::InvalidTreeStructure { .. } => ErrorCode::InternalError,
+                ProofError::HexEncoding => ErrorCode::InvalidHexEncoding,
+                ProofError::VerificationFailed { .. } => ErrorCode::VerificationFailed,
+            },
+            CryptoError::Signing(e) => match e {
+                SigningError::KeyGenerationFailed { .. } => ErrorCode::KeyGenerationFailed,
+                SigningError::SigningFailed { .. } => ErrorCode::SigningFailed,
+            },
             CryptoError::Io(_) => ErrorCode::IoError,
             CryptoError::Serialization(_) => ErrorCode::SerializationError,
             CryptoError::Config { .. } => ErrorCode::ConfigError,
             CryptoError::Internal { .. } => ErrorCode::InternalError,
         }
+    }
+
+    /// Returns true if this error represents a security event.
+    pub fn is_security_event(&self) -> bool {
+        matches!(
+            self,
+            CryptoError::Signing(SigningError::KeyGenerationFailed { .. })
+                | CryptoError::Signing(SigningError::SigningFailed { .. })
+                | CryptoError::Proof(ProofError::VerificationFailed { .. })
+        )
     }
 
     /// Returns true if this error is recoverable.
