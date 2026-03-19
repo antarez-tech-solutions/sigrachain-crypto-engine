@@ -11,6 +11,7 @@
 mod builder;
 mod tree;
 
+pub use builder::MerkleTreeBuilder;
 pub use tree::{MerkleNode, MerkleTree, TreeMetadata};
 
 use crate::error::MerkleError;
@@ -81,8 +82,11 @@ impl PaddingStrategy {
 ///
 /// - `MerkleError::EmptyLeaves` if the hash list is empty
 /// - `MerkleError::InvalidHash` if any hash is not valid SHA-256 format
-pub fn build_merkle_tree(_hashes: Vec<String>) -> Result<MerkleTree, MerkleError> {
-    todo!("Builder implementation comes on Day 3")
+pub fn build_merkle_tree(hashes: Vec<String>) -> Result<MerkleTree, MerkleError> {
+    MerkleTreeBuilder::new()
+        .add_hashes(hashes)
+        .with_padding(PaddingStrategy::DuplicateLast)
+        .build()
 }
 
 /// Validates that all hashes in a slice are valid SHA-256 format.
@@ -96,4 +100,47 @@ pub(crate) fn validate_hashes(hashes: &[String]) -> Result<(), MerkleError> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::hashing::hash_document;
+
+    fn sample_hashes(n: usize) -> Vec<String> {
+        (0..n).map(|i| hash_document(&i.to_le_bytes())).collect()
+    }
+
+    #[test]
+    fn test_build_single_leaf() {
+        let hashes = sample_hashes(1);
+        let tree = build_merkle_tree(hashes.clone()).unwrap();
+
+        assert_eq!(tree.leaf_count(), 1);
+        // Single leaf tree: root equals the leaf
+        assert_eq!(tree.root(), &hashes[0]);
+    }
+
+    #[test]
+    fn test_build_two_leaves() {
+        let hashes = sample_hashes(2);
+        let tree = build_merkle_tree(hashes.clone()).unwrap();
+
+        assert_eq!(tree.leaf_count(), 2);
+        assert_ne!(tree.root(), &hashes[0]);
+        assert_ne!(tree.root(), &hashes[1]);
+    }
+
+    #[test]
+    fn test_empty_leaves_error() {
+        let result = build_merkle_tree(Vec::new());
+        assert!(matches!(result, Err(MerkleError::EmptyLeaves)));
+    }
+
+    #[test]
+    fn test_invalid_hash_error() {
+        let hashes = vec!["not_a_valid_hash".to_string()];
+        let result = build_merkle_tree(hashes);
+        assert!(matches!(result, Err(MerkleError::InvalidHash { .. })));
+    }
 }

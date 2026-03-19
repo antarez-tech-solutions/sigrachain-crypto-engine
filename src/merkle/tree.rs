@@ -166,6 +166,30 @@ impl MerkleTree {
         &self.leaves
     }
 
+    /// Gets a node at a specific level and index.
+    pub fn get_node(&self, level: usize, index: usize) -> Option<&MerkleNode> {
+        self.levels.get(level)?.get(index)
+    }
+
+    /// Gets the sibling node for a given position.
+    ///
+    /// Used for proof generation.
+    pub fn get_sibling(&self, level: usize, index: usize) -> Option<&MerkleNode> {
+        let sibling_index = if index.is_multiple_of(2) { index + 1 } else { index - 1 };
+        self.get_node(level, sibling_index)
+    }
+
+    /// Rebuilds the leaf index after deserialization.
+    pub fn rebuild_index(&mut self) {
+        self.leaf_indices = self
+            .leaves
+            .iter()
+            .take(self.metadata.original_leaf_count)
+            .enumerate()
+            .map(|(i, h)| (h.clone(), i))
+            .collect();
+    }
+
     /// Creates the tree from internal data (used by builder).
     pub(crate) fn from_parts(
         root: String,
