@@ -54,10 +54,7 @@ impl PaddingStrategy {
         match self {
             Self::DuplicateLast => last_hash.to_string(),
             Self::ZeroPadding => "0".repeat(64),
-            Self::EmptyHash => {
-                // SHA-256 of empty string
-                "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855".to_string()
-            }
+            Self::EmptyHash => crate::hashing::hash_document(b""),
             Self::None => panic!("None padding strategy should not request padding hash"),
         }
     }
