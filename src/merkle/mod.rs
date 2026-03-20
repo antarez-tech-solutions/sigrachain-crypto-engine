@@ -12,7 +12,7 @@ mod builder;
 mod tree;
 
 pub use builder::MerkleTreeBuilder;
-pub use tree::{MerkleNode, MerkleTree, TreeMetadata};
+pub use tree::{CompactTree, MerkleNode, MerkleTree, TreeMetadata};
 
 use crate::error::MerkleError;
 use crate::hashing::is_valid_hash;
@@ -142,5 +142,69 @@ mod tests {
         let hashes = vec!["not_a_valid_hash".to_string()];
         let result = build_merkle_tree(hashes);
         assert!(matches!(result, Err(MerkleError::InvalidHash { .. })));
+    }
+
+    #[test]
+    fn test_build_power_of_two() {
+        for n in [2, 4, 8, 16, 32] {
+            let hashes = sample_hashes(n);
+            let tree = build_merkle_tree(hashes).unwrap();
+            assert_eq!(tree.leaf_count(), n);
+        }
+    }
+
+    #[test]
+    fn test_build_non_power_of_two() {
+        for n in [3, 5, 7, 9, 15, 17, 100, 1000] {
+            let hashes = sample_hashes(n);
+            let tree = build_merkle_tree(hashes).unwrap();
+            assert_eq!(tree.leaf_count(), n);
+        }
+    }
+
+    #[test]
+    fn test_tree_deterministic() {
+        let hashes = sample_hashes(10);
+        let tree1 = build_merkle_tree(hashes.clone()).unwrap();
+        let tree2 = build_merkle_tree(hashes).unwrap();
+
+        assert_eq!(tree1.root(), tree2.root());
+    }
+
+    #[test]
+    fn test_tree_contains() {
+        let hashes = sample_hashes(5);
+        let tree = build_merkle_tree(hashes.clone()).unwrap();
+
+        for hash in &hashes {
+            assert!(tree.contains(hash), "Tree should contain {}", hash);
+        }
+
+        let missing = hash_document(b"not in tree");
+        assert!(!tree.contains(&missing));
+    }
+
+    #[test]
+    fn test_padding_strategy_duplicate() {
+        let strategy = PaddingStrategy::DuplicateLast;
+        let last = "a".repeat(64);
+        assert_eq!(strategy.padding_hash(&last), last);
+    }
+
+    #[test]
+    fn test_padding_strategy_zero() {
+        let strategy = PaddingStrategy::ZeroPadding;
+        let padding = strategy.padding_hash("ignored");
+        assert_eq!(padding, "0".repeat(64));
+    }
+
+    #[test]
+    fn test_padding_strategy_empty() {
+        let strategy = PaddingStrategy::EmptyHash;
+        let padding = strategy.padding_hash("ignored");
+        assert_eq!(
+            padding,
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
     }
 }

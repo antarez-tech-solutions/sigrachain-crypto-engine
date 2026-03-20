@@ -190,6 +190,36 @@ impl MerkleTree {
             .collect();
     }
 
+    /// Verifies the tree's internal consistency.
+    ///
+    /// Recomputes all internal hashes and compares with stored values.
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` if tree is valid, error describing the inconsistency otherwise
+    pub fn verify_integrity(&self) -> Result<(), crate::error::MerkleError> {
+        use crate::error::MerkleError;
+
+        for level in 0..self.levels.len() - 1 {
+            let current = &self.levels[level];
+            let parent = &self.levels[level + 1];
+
+            for (i, chunk) in current.chunks(2).enumerate() {
+                let left = &chunk[0];
+                let right = chunk.get(1).unwrap_or(&chunk[0]);
+
+                let expected_hash = hash_pair(&left.hash, &right.hash);
+                let actual_hash = &parent[i].hash;
+
+                if expected_hash != *actual_hash {
+                    return Err(MerkleError::IntegrityCheckFailed { level, index: i });
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     /// Creates the tree from internal data (used by builder).
     pub(crate) fn from_parts(
         root: String,
@@ -212,5 +242,183 @@ impl MerkleTree {
             leaf_indices,
             metadata,
         }
+    }
+}
+
+// ============================================================================
+// SERIALIZATION
+// ============================================================================
+
+impl MerkleTree {
+    /// Serializes the tree to JSON.
+    pub fn to_json(&self) -> Result<String, serde_json::Error> {
+        serde_json::to_string_pretty(self)
+    }
+
+    /// Deserializes a tree from JSON.
+    pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
+        let mut tree: Self = serde_json::from_str(json)?;
+        tree.rebuild_index();
+        Ok(tree)
+    }
+
+    /// Returns a compact representation (root + leaves only).
+    ///
+    /// The full tree can be reconstructed from this using `expand()`.
+    pub fn to_compact(&self) -> CompactTree {
+        CompactTree {
+            root: self.root.clone(),
+            leaves: self.leaves[..self.metadata.original_leaf_count].to_vec(),
+            padding_strategy: self.metadata.padding_strategy,
+        }
+    }
+}
+
+/// Compact tree representation for storage.
+///
+/// Contains only the essential data; full tree can be reconstructed.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompactTree {
+    /// The root hash
+    pub root: String,
+
+    /// Original leaf hashes (no padding)
+    pub leaves: Vec<String>,
+
+    /// Padding strategy used
+    pub padding_strategy: PaddingStrategy,
+}
+
+impl CompactTree {
+    /// Reconstructs the full tree from compact form.
+    pub fn expand(&self) -> Result<MerkleTree, crate::error::MerkleError> {
+        use super::MerkleTreeBuilder;
+
+        let tree = MerkleTreeBuilder::new()
+            .add_hashes(self.leaves.clone())
+            .with_padding(self.padding_strategy)
+            .build()?;
+
+        // Verify reconstruction matches original root
+        if tree.root() != self.root {
+            return Err(crate::error::MerkleError::IntegrityCheckFailed {
+                level: 0,
+                index: 0,
+            });
+        }
+
+        Ok(tree)
+    }
+}
+
+// ============================================================================
+// TESTS
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::hashing::hash_document;
+
+    fn build_test_tree(n: usize) -> MerkleTree {
+        let hashes: Vec<String> = (0..n).map(|i| hash_document(&i.to_le_bytes())).collect();
+        crate::merkle::build_merkle_tree(hashes).unwrap()
+    }
+
+    #[test]
+    fn test_node_leaf() {
+        let hash = hash_document(b"test");
+        let node = MerkleNode::leaf(hash.clone(), 0);
+
+        assert!(node.is_leaf());
+        assert_eq!(node.hash, hash);
+        assert_eq!(node.level, 0);
+        assert_eq!(node.index, 0);
+    }
+
+    #[test]
+    fn test_node_internal() {
+        let left = MerkleNode::leaf(hash_document(b"left"), 0);
+        let right = MerkleNode::leaf(hash_document(b"right"), 1);
+
+        let parent = MerkleNode::internal(&left, &right, 0);
+
+        assert!(!parent.is_leaf());
+        assert_eq!(parent.level, 1);
+        assert_eq!(parent.index, 0);
+
+        let expected = hash_pair(&left.hash, &right.hash);
+        assert_eq!(parent.hash, expected);
+    }
+
+    #[test]
+    fn test_tree_height() {
+        let cases = [
+            (1, 1),
+            (2, 2),
+            (3, 3),
+            (4, 3),
+            (5, 4),
+            (8, 4),
+            (9, 5),
+        ];
+
+        for (n, expected_height) in cases {
+            let tree = build_test_tree(n);
+            assert_eq!(
+                tree.height(),
+                expected_height,
+                "Tree with {} leaves should have height {}",
+                n,
+                expected_height
+            );
+        }
+    }
+
+    #[test]
+    fn test_get_sibling() {
+        let tree = build_test_tree(4);
+
+        let sibling_0 = tree.get_sibling(0, 0).unwrap();
+        let node_1 = tree.get_node(0, 1).unwrap();
+        assert_eq!(sibling_0.hash, node_1.hash);
+
+        let sibling_1 = tree.get_sibling(0, 1).unwrap();
+        let node_0 = tree.get_node(0, 0).unwrap();
+        assert_eq!(sibling_1.hash, node_0.hash);
+    }
+
+    #[test]
+    fn test_verify_integrity() {
+        let tree = build_test_tree(8);
+        assert!(tree.verify_integrity().is_ok());
+    }
+
+    #[test]
+    fn test_serialization_roundtrip() {
+        let tree = build_test_tree(5);
+        let json = tree.to_json().unwrap();
+        let restored = MerkleTree::from_json(&json).unwrap();
+
+        assert_eq!(tree.root(), restored.root());
+        assert_eq!(tree.leaf_count(), restored.leaf_count());
+        assert_eq!(tree.height(), restored.height());
+
+        for hash in tree.leaves() {
+            assert!(restored.contains(hash));
+        }
+    }
+
+    #[test]
+    fn test_compact_roundtrip() {
+        let tree = build_test_tree(7);
+        let compact = tree.to_compact();
+
+        assert_eq!(compact.leaves.len(), 7);
+        assert_eq!(compact.root, tree.root());
+
+        let expanded = compact.expand().unwrap();
+        assert_eq!(expanded.root(), tree.root());
+        assert_eq!(expanded.leaf_count(), tree.leaf_count());
     }
 }
