@@ -8,6 +8,8 @@
 mod generator;
 mod verifier;
 
+pub use generator::{generate_merkle_proof, ProofGenerator};
+
 use serde::{Deserialize, Serialize};
 
 /// Direction of sibling in proof path.
