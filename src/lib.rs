@@ -3,6 +3,7 @@
 pub mod error;
 pub mod hashing;
 pub mod merkle;
+pub mod proof;
 
 pub use error::{CryptoError, HashError};
 pub use hashing::{hash_document, hash_string, batch_hash_documents, DocumentHasher, HashConfig, StreamingHasher};
