@@ -5,8 +5,10 @@ pub mod hashing;
 pub mod merkle;
 pub mod proof;
 
-pub use error::{CryptoError, HashError};
+pub use error::{CryptoError, HashError, MerkleError, ProofError, SigningError, ErrorCode};
 pub use hashing::{hash_document, hash_string, batch_hash_documents, DocumentHasher, HashConfig, StreamingHasher};
+pub use merkle::{build_merkle_tree, MerkleTree, MerkleTreeBuilder, PaddingStrategy};
+pub use proof::{generate_merkle_proof, verify_merkle_proof, MerkleProof, ProofDirection};
 
 pub fn version() -> &'static str {
     env!("CARGO_PKG_VERSION")
