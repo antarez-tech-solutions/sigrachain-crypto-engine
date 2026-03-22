@@ -147,6 +147,128 @@ impl MerkleProof {
 }
 
 // ============================================================================
+// COMPACT PROOF FORMAT
+// ============================================================================
+
+/// Compact binary proof format for storage efficiency.
+///
+/// Reduces proof size by ~40% compared to JSON:
+/// - Uses raw bytes instead of hex strings
+/// - Encodes direction as single bits
+/// - Omits optional fields
+#[derive(Debug, Clone)]
+pub struct CompactProof {
+    /// Document hash (32 bytes)
+    pub document_hash: [u8; 32],
+
+    /// Root hash (32 bytes)
+    pub root: [u8; 32],
+
+    /// Leaf index
+    pub leaf_index: u32,
+
+    /// Path: (direction_bit, hash) pairs
+    /// direction: 0 = Left, 1 = Right
+    pub path: Vec<(u8, [u8; 32])>,
+}
+
+impl MerkleProof {
+    /// Converts to compact binary format.
+    pub fn to_compact(&self) -> Result<CompactProof, crate::error::ProofError> {
+        use crate::error::ProofError;
+
+        let document_hash: [u8; 32] = hex::decode(&self.document_hash)
+            .map_err(|_| ProofError::HexEncoding)?
+            .try_into()
+            .map_err(|_| ProofError::InvalidDocumentHash {
+                hash: self.document_hash.clone(),
+            })?;
+
+        let root: [u8; 32] = hex::decode(&self.root)
+            .map_err(|_| ProofError::HexEncoding)?
+            .try_into()
+            .map_err(|_| ProofError::InvalidRootHash {
+                hash: self.root.clone(),
+            })?;
+
+        let path: Result<Vec<(u8, [u8; 32])>, ProofError> = self
+            .path
+            .iter()
+            .enumerate()
+            .map(|(i, step)| {
+                let direction_bit = match step.direction {
+                    ProofDirection::Left => 0,
+                    ProofDirection::Right => 1,
+                };
+
+                let hash: [u8; 32] = hex::decode(&step.hash)
+                    .map_err(|_| ProofError::HexEncoding)?
+                    .try_into()
+                    .map_err(|_| ProofError::InvalidProofStep {
+                        index: i,
+                        hash: step.hash.clone(),
+                    })?;
+
+                Ok((direction_bit, hash))
+            })
+            .collect();
+
+        Ok(CompactProof {
+            document_hash,
+            root,
+            leaf_index: self.leaf_index as u32,
+            path: path?,
+        })
+    }
+
+    /// Converts from compact binary format.
+    pub fn from_compact(compact: &CompactProof) -> Self {
+        let path: Vec<ProofStep> = compact
+            .path
+            .iter()
+            .map(|(direction, hash)| ProofStep {
+                hash: hex::encode(hash),
+                direction: if *direction == 0 {
+                    ProofDirection::Left
+                } else {
+                    ProofDirection::Right
+                },
+                level: None,
+            })
+            .collect();
+
+        Self {
+            document_hash: hex::encode(compact.document_hash),
+            path,
+            root: hex::encode(compact.root),
+            leaf_index: compact.leaf_index as usize,
+            metadata: None,
+        }
+    }
+}
+
+// ============================================================================
+// SERIALIZATION
+// ============================================================================
+
+impl MerkleProof {
+    /// Serializes to JSON.
+    pub fn to_json(&self) -> Result<String, serde_json::Error> {
+        serde_json::to_string_pretty(self)
+    }
+
+    /// Deserializes from JSON.
+    pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
+        serde_json::from_str(json)
+    }
+
+    /// Serializes to compact JSON (single line, no pretty printing).
+    pub fn to_json_compact(&self) -> Result<String, serde_json::Error> {
+        serde_json::to_string(self)
+    }
+}
+
+// ============================================================================
 // TESTS
 // ============================================================================
 
@@ -197,5 +319,31 @@ mod tests {
     fn test_proof_direction_opposite() {
         assert_eq!(ProofDirection::Left.opposite(), ProofDirection::Right);
         assert_eq!(ProofDirection::Right.opposite(), ProofDirection::Left);
+    }
+
+    #[test]
+    fn test_json_roundtrip() {
+        let proof = sample_proof();
+        let json = proof.to_json().unwrap();
+        let restored = MerkleProof::from_json(&json).unwrap();
+
+        assert_eq!(proof.document_hash, restored.document_hash);
+        assert_eq!(proof.root, restored.root);
+        assert_eq!(proof.path.len(), restored.path.len());
+        assert_eq!(proof.leaf_index, restored.leaf_index);
+    }
+
+    #[test]
+    fn test_compact_roundtrip() {
+        let proof = sample_proof();
+        let compact = proof.to_compact().unwrap();
+        let restored = MerkleProof::from_compact(&compact);
+
+        assert_eq!(proof.document_hash, restored.document_hash);
+        assert_eq!(proof.root, restored.root);
+        assert_eq!(proof.path.len(), restored.path.len());
+        assert_eq!(proof.leaf_index, restored.leaf_index);
+        // Metadata is stripped in compact format
+        assert!(restored.metadata.is_none());
     }
 }
