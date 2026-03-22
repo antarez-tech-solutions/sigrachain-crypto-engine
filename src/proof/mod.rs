@@ -9,6 +9,7 @@ mod generator;
 mod verifier;
 
 pub use generator::{generate_merkle_proof, ProofGenerator};
+pub use verifier::{verify_merkle_proof, ProofVerifier, VerificationResult};
 
 use serde::{Deserialize, Serialize};
 
@@ -128,6 +129,20 @@ impl MerkleProof {
         is_valid_hash(&self.document_hash)
             && is_valid_hash(&self.root)
             && self.path.iter().all(|step| is_valid_hash(&step.hash))
+    }
+
+    /// Verifies the proof against its own root.
+    ///
+    /// Convenience method that calls `verify_merkle_proof`.
+    pub fn verify(&self) -> Result<bool, crate::error::ProofError> {
+        verify_merkle_proof(&self.document_hash, self, &self.root)
+    }
+
+    /// Verifies the proof against a different root.
+    ///
+    /// Use this when the on-chain root might differ from the stored root.
+    pub fn verify_against(&self, expected_root: &str) -> Result<bool, crate::error::ProofError> {
+        verify_merkle_proof(&self.document_hash, self, expected_root)
     }
 }
 
