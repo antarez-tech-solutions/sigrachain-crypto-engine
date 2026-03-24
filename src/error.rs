@@ -112,8 +112,17 @@ pub enum SigningError {
     #[error("key generation failed: {reason}")]
     KeyGenerationFailed { reason: String },
 
+    #[error("key parsing failed: {reason}")]
+    KeyParsingFailed { reason: String },
+
     #[error("signing operation failed: {reason}")]
     SigningFailed { reason: String },
+
+    #[error("signature verification failed")]
+    VerificationFailed,
+
+    #[error("invalid signature format: expected {expected} bytes, got {actual}")]
+    InvalidSignatureFormat { expected: usize, actual: usize },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -140,7 +149,10 @@ pub enum ErrorCode {
 
     // Signing errors: 4xxx
     KeyGenerationFailed = 4001,
+    KeyParsingFailed = 4002,
     SigningFailed = 4003,
+    SignatureVerificationFailed = 4004,
+    InvalidSignatureFormat = 4005,
 
     // General errors: 9xxx
     IoError = 9001,
@@ -178,7 +190,10 @@ impl CryptoError {
             },
             CryptoError::Signing(e) => match e {
                 SigningError::KeyGenerationFailed { .. } => ErrorCode::KeyGenerationFailed,
+                SigningError::KeyParsingFailed { .. } => ErrorCode::KeyParsingFailed,
                 SigningError::SigningFailed { .. } => ErrorCode::SigningFailed,
+                SigningError::VerificationFailed => ErrorCode::SignatureVerificationFailed,
+                SigningError::InvalidSignatureFormat { .. } => ErrorCode::InvalidSignatureFormat,
             },
             CryptoError::Io(_) => ErrorCode::IoError,
             CryptoError::Serialization(_) => ErrorCode::SerializationError,
@@ -192,7 +207,9 @@ impl CryptoError {
         matches!(
             self,
             CryptoError::Signing(SigningError::KeyGenerationFailed { .. })
+                | CryptoError::Signing(SigningError::KeyParsingFailed { .. })
                 | CryptoError::Signing(SigningError::SigningFailed { .. })
+                | CryptoError::Signing(SigningError::VerificationFailed)
                 | CryptoError::Proof(ProofError::VerificationFailed { .. })
         )
     }
