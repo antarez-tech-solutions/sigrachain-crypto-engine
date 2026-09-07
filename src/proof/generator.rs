@@ -110,6 +110,7 @@ impl ProofGenerator {
 mod tests {
     use super::*;
     use crate::hashing::hash_document;
+    use crate::hashing::hash_leaf;
     use crate::merkle::build_merkle_tree;
 
     fn setup_tree(n: usize) -> (Vec<String>, MerkleTree) {
@@ -158,7 +159,8 @@ mod tests {
         let proof = generate_merkle_proof(&hashes[0], &tree).unwrap();
 
         assert_eq!(proof.size(), 0);
-        assert_eq!(proof.root, hashes[0]);
+        // Root is the tagged leaf commitment, not the raw document hash
+        assert_eq!(proof.root, hash_leaf(&hashes[0]).unwrap());
     }
 
     #[test]
