@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use super::PaddingStrategy;
-use crate::hashing::hash_pair;
+use crate::hashing::hash_node;
 
 /// Represents a node in the Merkle tree.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -31,9 +31,12 @@ impl MerkleNode {
 
     /// Creates an internal node from two children.
     ///
-    /// The hash is computed as `H(left.hash || right.hash)`.
+    /// The hash is computed as the domain-tagged node commitment
+    /// `SHA-256(0x01 ‖ left.hash ‖ right.hash)` — never a bare
+    /// `hash_pair`, so a node value cannot masquerade as a leaf.
     pub fn internal(left: &MerkleNode, right: &MerkleNode, index: usize) -> Self {
-        let hash = hash_pair(&left.hash, &right.hash);
+        let hash = hash_node(&left.hash, &right.hash)
+            .expect("hashes validated by the builder; hex-decode cannot fail here");
         Self {
             hash,
             index,
@@ -208,7 +211,8 @@ impl MerkleTree {
                 let left = &chunk[0];
                 let right = chunk.get(1).unwrap_or(&chunk[0]);
 
-                let expected_hash = hash_pair(&left.hash, &right.hash);
+                let expected_hash = hash_node(&left.hash, &right.hash)
+                    .expect("hashes validated at build time; hex-decode cannot fail here");
                 let actual_hash = &parent[i].hash;
 
                 if expected_hash != *actual_hash {
@@ -324,7 +328,6 @@ mod tests {
         let hashes: Vec<String> = (0..n).map(|i| hash_document(&i.to_le_bytes())).collect();
         crate::merkle::build_merkle_tree(hashes).unwrap()
     }
-
     #[test]
     fn test_node_leaf() {
         let hash = hash_document(b"test");
@@ -347,7 +350,7 @@ mod tests {
         assert_eq!(parent.level, 1);
         assert_eq!(parent.index, 0);
 
-        let expected = hash_pair(&left.hash, &right.hash);
+        let expected = hash_node(&left.hash, &right.hash).unwrap();
         assert_eq!(parent.hash, expected);
     }
 

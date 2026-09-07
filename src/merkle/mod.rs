@@ -106,6 +106,7 @@ pub(crate) fn validate_hashes(hashes: &[String]) -> Result<(), MerkleError> {
 mod tests {
     use super::*;
     use crate::hashing::hash_document;
+    use crate::hashing::hash_leaf;
 
     fn sample_hashes(n: usize) -> Vec<String> {
         (0..n).map(|i| hash_document(&i.to_le_bytes())).collect()
@@ -117,8 +118,11 @@ mod tests {
         let tree = build_merkle_tree(hashes.clone()).unwrap();
 
         assert_eq!(tree.leaf_count(), 1);
-        // Single leaf tree: root equals the leaf
-        assert_eq!(tree.root(), &hashes[0]);
+        // Single leaf tree: the root is the domain-tagged leaf commitment
+        // SHA-256(0x00 ‖ hash) — never the raw leaf, which is exactly the
+        // identity a second-preimage forger would exploit.
+        assert_eq!(tree.root(), &hash_leaf(&hashes[0]).unwrap());
+        assert_ne!(tree.root(), &hashes[0]);
     }
 
     #[test]

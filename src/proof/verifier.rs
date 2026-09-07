@@ -2,11 +2,9 @@
 //!
 //! Verifies that a document is included in a Merkle tree given its proof.
 
-use sha2::{Digest, Sha256};
-
 use super::{MerkleProof, ProofDirection};
 use crate::error::ProofError;
-use crate::hashing::is_valid_hash;
+use crate::hashing::{hash_leaf, hash_node, is_valid_hash};
 
 /// Verifies a Merkle proof against an expected root.
 ///
@@ -71,32 +69,30 @@ impl ProofVerifier {
     }
 
     /// Computes the root hash by traversing the proof path.
+    ///
+    /// Domain-separated exactly like the tree builder: the claimed
+    /// document hash is first committed with the leaf tag (0x00), then
+    /// combined upward with the node tag (0x01) at each step — so a
+    /// raw internal-node value presented as a document can never verify.
     fn compute_root(
         document_hash: &str,
         path: &[super::ProofStep],
     ) -> Result<String, ProofError> {
-        let mut current = document_hash.to_string();
+        let mut current = hash_leaf(document_hash).map_err(|_| ProofError::HexEncoding)?;
 
         for step in path {
             current = match step.direction {
-                ProofDirection::Left => Self::hash_pair(&step.hash, &current)?,
-                ProofDirection::Right => Self::hash_pair(&current, &step.hash)?,
+                ProofDirection::Left => Self::hash_node(&step.hash, &current)?,
+                ProofDirection::Right => Self::hash_node(&current, &step.hash)?,
             };
         }
 
         Ok(current)
     }
 
-    /// Hashes two hex-encoded hashes together.
-    fn hash_pair(left: &str, right: &str) -> Result<String, ProofError> {
-        let left_bytes = hex::decode(left).map_err(|_| ProofError::HexEncoding)?;
-        let right_bytes = hex::decode(right).map_err(|_| ProofError::HexEncoding)?;
-
-        let mut hasher = Sha256::new();
-        hasher.update(&left_bytes);
-        hasher.update(&right_bytes);
-
-        Ok(hex::encode(hasher.finalize()))
+    /// Domain-tagged internal node: SHA-256(0x01 ‖ left ‖ right).
+    fn hash_node(left: &str, right: &str) -> Result<String, ProofError> {
+        hash_node(left, right).map_err(|_| ProofError::HexEncoding)
     }
 
     /// Constant-time comparison of two hashes.

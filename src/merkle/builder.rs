@@ -3,6 +3,7 @@
 use super::tree::{MerkleNode, MerkleTree, TreeMetadata};
 use super::{validate_hashes, PaddingStrategy};
 use crate::error::MerkleError;
+use crate::hashing::hash_leaf;
 
 /// Maximum number of leaves allowed in a tree.
 ///
@@ -114,14 +115,21 @@ impl MerkleTreeBuilder {
 /// Builds tree levels from leaves to root.
 ///
 /// Returns (levels, root_hash) where levels[0] = leaf nodes.
+/// Level-0 node hashes are the domain-tagged leaf commitments
+/// `hash_leaf(document_hash)`; the raw document hashes stay in
+/// `MerkleTree.leaves` / `leaf_indices` for the unchanged public lookup API.
 fn build_tree_levels(leaves: &[String]) -> (Vec<Vec<MerkleNode>>, String) {
     let mut levels: Vec<Vec<MerkleNode>> = Vec::new();
 
-    // Level 0: Create leaf nodes
+    // Level 0: Create leaf nodes (tagged commitments, not raw hashes)
     let leaf_nodes: Vec<MerkleNode> = leaves
         .iter()
         .enumerate()
-        .map(|(i, hash)| MerkleNode::leaf(hash.clone(), i))
+        .map(|(i, hash)| {
+            let commitment = hash_leaf(hash)
+                .expect("hashes validated by validate_hashes; hex-decode cannot fail here");
+            MerkleNode::leaf(commitment, i)
+        })
         .collect();
     levels.push(leaf_nodes);
 

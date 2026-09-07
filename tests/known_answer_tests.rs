@@ -3,7 +3,7 @@
 //! These tests use well-known reference values to ensure correctness
 //! and enable verification across different implementations.
 
-use sigrachain_crypto::hashing::{hash_document, hash_pair, is_valid_hash};
+use sigrachain_crypto::hashing::{hash_document, is_valid_hash};
 use sigrachain_crypto::{build_merkle_tree, generate_merkle_proof, verify_merkle_proof};
 
 /// NIST FIPS 180-4 SHA-256 test vectors.
@@ -73,6 +73,7 @@ mod sha256_vectors {
 /// Deterministic Merkle tree test vectors.
 mod merkle_vectors {
     use super::*;
+    use sigrachain_crypto::hashing::{hash_leaf, hash_node};
 
     #[test]
     fn test_two_leaf_tree() {
@@ -81,8 +82,10 @@ mod merkle_vectors {
 
         let tree = build_merkle_tree(vec![h0.clone(), h1.clone()]).unwrap();
 
-        // Root = H(h0 || h1)
-        let expected_root = hash_pair(&h0, &h1);
+        // Root = SHA-256(0x01 ‖ H(h0) ‖ H(h1)) where H = hash_leaf commitments
+        let l0 = hash_leaf(&h0).unwrap();
+        let l1 = hash_leaf(&h1).unwrap();
+        let expected_root = hash_node(&l0, &l1).unwrap();
         assert_eq!(tree.root(), &expected_root);
         assert_eq!(tree.leaf_count(), 2);
         assert_eq!(tree.height(), 2);
@@ -94,12 +97,16 @@ mod merkle_vectors {
 
         let tree = build_merkle_tree(leaves.clone()).unwrap();
 
-        // Level 1: H(L0||L1), H(L2||L3)
-        let h01 = hash_pair(&leaves[0], &leaves[1]);
-        let h23 = hash_pair(&leaves[2], &leaves[3]);
+        // Level 1: N(L0,L1), N(L2,L3) over the tagged leaf commitments
+        let l0 = hash_leaf(&leaves[0]).unwrap();
+        let l1 = hash_leaf(&leaves[1]).unwrap();
+        let l2 = hash_leaf(&leaves[2]).unwrap();
+        let l3 = hash_leaf(&leaves[3]).unwrap();
+        let h01 = hash_node(&l0, &l1).unwrap();
+        let h23 = hash_node(&l2, &l3).unwrap();
 
-        // Root: H(H01 || H23)
-        let expected_root = hash_pair(&h01, &h23);
+        // Root: N(N01, N23)
+        let expected_root = hash_node(&h01, &h23).unwrap();
         assert_eq!(tree.root(), &expected_root);
         assert_eq!(tree.leaf_count(), 4);
         assert_eq!(tree.height(), 3);
@@ -113,11 +120,14 @@ mod merkle_vectors {
         let tree = build_merkle_tree(leaves.clone()).unwrap();
         let proof = generate_merkle_proof(&leaves[0], &tree).unwrap();
 
-        // Proof for leaf[0]: sibling at level 0 is leaves[1], sibling at level 1 is H(leaves[2]||leaves[3])
+        // Proof for leaf[0]: sibling at level 0 is the tagged commitment of
+        // leaves[1], sibling at level 1 is N(H(leaves[2]), H(leaves[3]))
         assert_eq!(proof.path.len(), 2);
-        assert_eq!(proof.path[0].hash, leaves[1]);
+        assert_eq!(proof.path[0].hash, hash_leaf(&leaves[1]).unwrap());
 
-        let h23 = hash_pair(&leaves[2], &leaves[3]);
+        let l2 = hash_leaf(&leaves[2]).unwrap();
+        let l3 = hash_leaf(&leaves[3]).unwrap();
+        let h23 = hash_node(&l2, &l3).unwrap();
         assert_eq!(proof.path[1].hash, h23);
 
         assert!(verify_merkle_proof(&leaves[0], &proof, tree.root()).unwrap());
@@ -128,8 +138,10 @@ mod merkle_vectors {
         let hash = hash_document(b"only leaf");
         let tree = build_merkle_tree(vec![hash.clone()]).unwrap();
 
-        // Single leaf: root == leaf
-        assert_eq!(tree.root(), &hash);
+        // Single leaf: root is the tagged commitment SHA-256(0x00 ‖ hash) —
+        // the raw `root == leaf` identity was the second-preimage vector.
+        assert_eq!(tree.root(), &hash_leaf(&hash).unwrap());
+        assert_ne!(tree.root(), &hash);
         assert_eq!(tree.leaf_count(), 1);
         assert_eq!(tree.height(), 1);
 

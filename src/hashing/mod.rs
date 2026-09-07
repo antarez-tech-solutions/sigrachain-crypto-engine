@@ -64,6 +64,39 @@ pub fn hash_pair(left: &str, right: &str) -> String {
     hex::encode(hasher.finalize())
 }
 
+/// RFC 6962 style domain tags: leaf hashes and internal node hashes can
+/// never collide, so an internal node value cannot be presented as a
+/// document leaf (second-preimage resistance).
+const LEAF_TAG: u8 = 0x00;
+const NODE_TAG: u8 = 0x01;
+
+/// Tree leaf commitment: SHA-256(0x00 ‖ document_hash_bytes).
+/// Input is a hex document hash (from `hash_document`); output is hex.
+/// The public document fingerprint `hash_document` stays UNtagged — the
+/// tags are a property of the tree, not of the document hash.
+pub fn hash_leaf(document_hash_hex: &str) -> Result<String, crate::error::HashError> {
+    let bytes = hex::decode(document_hash_hex)
+        .map_err(|e| crate::error::HashError::HexEncoding { details: e.to_string() })?;
+    let mut h = Sha256::new();
+    h.update([LEAF_TAG]);
+    h.update(&bytes);
+    Ok(hex::encode(h.finalize()))
+}
+
+/// Internal node: SHA-256(0x01 ‖ left ‖ right). Replaces the un-tagged
+/// hash_pair FOR TREE USE (hash_pair itself stays for any non-tree caller).
+pub fn hash_node(left_hex: &str, right_hex: &str) -> Result<String, crate::error::HashError> {
+    let l = hex::decode(left_hex)
+        .map_err(|e| crate::error::HashError::HexEncoding { details: e.to_string() })?;
+    let r = hex::decode(right_hex)
+        .map_err(|e| crate::error::HashError::HexEncoding { details: e.to_string() })?;
+    let mut h = Sha256::new();
+    h.update([NODE_TAG]);
+    h.update(&l);
+    h.update(&r);
+    Ok(hex::encode(h.finalize()))
+}
+
 /// Safe version of hash_pair that returns Result instead of panicking.
 ///
 /// Use this when hashes come from untrusted sources.
