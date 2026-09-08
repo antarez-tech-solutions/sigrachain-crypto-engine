@@ -58,3 +58,11 @@ fn test_large_batch_flow() {
         assert!(verify_merkle_proof(&hashes[i], &proof, tree.root()).unwrap());
     }
 }
+
+#[test]
+fn secure_compare_matches_equality_semantics() {
+    let h = sigrachain_crypto::hash_string("x");
+    assert!(sigrachain_crypto::secure_compare(&h, &h));
+    assert!(!sigrachain_crypto::secure_compare(&h, &sigrachain_crypto::hash_string("y")));
+    assert!(!sigrachain_crypto::secure_compare("not-hex", &h));
+}
