@@ -53,6 +53,14 @@ assert!(valid);
 - **Independent** — verification requires only the proof and the root, not the full tree
 - **Timing-safe** — hash comparison uses constant-time XOR to prevent side-channel attacks
 
+## Dependency policy
+
+Direct dependencies are pinned to exact versions (`=X.Y.Z`) and the
+`Cargo.lock` is committed, so every build resolves identically. When
+bumping a dependency, adopt a **7-day release-age cooldown**: do not
+adopt a release younger than 7 days, so a freshly-poisoned version
+never enters the tree automatically.
+
 ## License
 
 This repository and all contributions are licensed under the [LGPL 3.0](https://www.gnu.org/licenses/lgpl-3.0.html), unless otherwise specified in subdirectory LICENSE files.
