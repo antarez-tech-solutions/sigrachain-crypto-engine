@@ -61,6 +61,23 @@ bumping a dependency, adopt a **7-day release-age cooldown**: do not
 adopt a release younger than 7 days, so a freshly-poisoned version
 never enters the tree automatically.
 
+## Local validation
+
+Run before every commit:
+
+```bash
+cargo build --locked && cargo test   # compile + test suite
+cargo audit                          # RustSec advisories against Cargo.lock
+```
+
+This repo is public, so it also ships a pre-commit hook that blocks
+secrets and internal endpoints from entering the history. Activate it
+after cloning:
+
+```bash
+git config core.hooksPath .githooks
+```
+
 ## License
 
 This repository and all contributions are licensed under the [LGPL 3.0](https://www.gnu.org/licenses/lgpl-3.0.html), unless otherwise specified in subdirectory LICENSE files.
