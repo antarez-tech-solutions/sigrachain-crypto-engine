@@ -12,6 +12,12 @@ pub use merkle::{build_merkle_tree, MerkleTree, MerkleTreeBuilder, PaddingStrate
 pub use proof::{generate_merkle_proof, verify_merkle_proof, MerkleProof, ProofDirection};
 pub use signing::{SigningKeyPair, Signature, verify_signature};
 
+/// Constant-time comparison of two hex-encoded hashes.
+/// Documented in architecture/v1/08-security.md as `secure_compare`.
+pub fn secure_compare(a: &str, b: &str) -> bool {
+    proof::ProofVerifier::hashes_equal(a, b).unwrap_or(false)
+}
+
 pub fn version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
